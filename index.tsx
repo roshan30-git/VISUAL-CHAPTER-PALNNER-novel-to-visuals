@@ -1,13 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AppState, VideoProfile, VisualItem, VisualType, UploadedFile, SeriesBible, Character } from './types';
+import { AppState, VideoProfile, VisualItem, VisualType, UploadedFile, SeriesBible, Character, ChapterMood, EmotionPoint } from './types';
 import { generateVisualPlan, generateImageForItem, regenerateVisualDescription, generateSeriesBible, generateCharacterPortrait, editVisualImage } from './services/gemini';
 import { Button } from './components/Button';
 import { VisualCard } from './components/VisualCard';
 import { Heatmap } from './components/Heatmap';
 import { CharacterBible } from './components/CharacterBible';
-import { Sparkles, FileText, ChevronRight, Settings2, Download, Image as ImageIcon, BookOpen, AlertCircle, Users, Paperclip, X, FileType, MonitorPlay, ScrollText, ChevronDown, Star, Database, Check, Loader2, Edit2, Save, ArrowRight, Trash2, Globe, LayoutGrid, Palette, Forward } from 'lucide-react';
+import { Sparkles, FileText, ChevronRight, Settings2, Download, Image as ImageIcon, BookOpen, AlertCircle, Users, Paperclip, X, FileType, MonitorPlay, ScrollText, ChevronDown, Star, Database, Check, Loader2, Edit2, Save, ArrowRight, Trash2, Globe, LayoutGrid, Palette, Forward, PowerOff } from 'lucide-react';
 
 // --- Sub-Components ---
 
@@ -304,26 +304,136 @@ const InputView: React.FC<InputViewProps> = ({
   );
 };
 
+// --- Sample Data for Demonstration ---
+const sampleChapterText = `
+Chapter 1: The Whispering Woods
+
+Elara, a young enchantress with eyes the color of twilight, ventured into the Whispering Woods, her staff tapping rhythmically against the gnarled roots. A cloak of emerald leaves, woven by her grandmother, kept her hidden from the forest's watchful gaze. Her mission was perilous: retrieve the Sunstone from the ancient grotto, a relic said to mend the broken heart of the kingdom.
+
+The air grew heavy with an ethereal hum as she delved deeper. Ancient trees, their branches laden with glowing moss, formed a living cathedral. Suddenly, a shadow detached itself from the gloom. It was Kael, the rogue knight, his armor scuffed, a mischievous glint in his amber eyes. He'd been tracking her, a silent guardian, sworn to protect the Sunstone from falling into the wrong hands – even if those hands belonged to a well-intentioned enchantress.
+
+"Elara," he rumbled, his voice low, "the grotto's wards are strong. You cannot pass."
+
+Elara sighed, a wisp of frustration escaping her lips. "Kael, I must. The kingdom withers without it."
+
+A gentle breeze stirred the leaves, carrying whispers of forgotten magic. Kael stood firm, a silent challenge in his stance. The path to the grotto, shimmering with faint, protective runes, lay between them.
+`;
+
+const sampleMood: ChapterMood = {
+  tone: 'Mysterious, Adventurous, and Slightly Tense',
+  palette_hint: 'Deep greens, ethereal blues, and soft golds'
+};
+
+const sampleCharacters: Character[] = [
+  {
+    name: 'Elara',
+    physical_description: 'Young enchantress, twilight-colored eyes, emerald leaf cloak, wooden staff with a glowing crystal.',
+    imageUrl: 'https://via.placeholder.com/150/6A5ACD/FFFFFF?text=Elara', // Sample Image URL
+    status: 'done'
+  },
+  {
+    name: 'Kael',
+    physical_description: 'Rogue knight, scuffed dark armor, amber eyes, short dark hair, stoic expression, weathered leather gauntlets.',
+    imageUrl: 'https://via.placeholder.com/150/4682B4/FFFFFF?text=Kael', // Sample Image URL
+    status: 'done'
+  }
+];
+
+const sampleEmotionArc: EmotionPoint[] = [
+  { beat_description: 'Journey Begins', emotion_label: 'Anticipation', intensity: 6, color_hex: '#6A5ACD' },
+  { beat_description: 'Into the Woods', emotion_label: 'Mystery', intensity: 7, color_hex: '#483D8B' },
+  { beat_description: 'Ethereal Hum', emotion_label: 'Wonder', intensity: 8, color_hex: '#7B68EE' },
+  { beat_description: 'Kael Appears', emotion_label: 'Tension', intensity: 9, color_hex: '#B22222' },
+  { beat_description: 'Confrontation', emotion_label: 'Conflict', intensity: 8, color_hex: '#FF4500' },
+  { beat_description: 'Plea for Help', emotion_label: 'Desperation', intensity: 7, color_hex: '#FF8C00' },
+  { beat_description: 'Kael\'s Resolve', emotion_label: 'Determination', intensity: 8, color_hex: '#228B22' },
+  { beat_description: 'Path Blocked', emotion_label: 'Frustration', intensity: 6, color_hex: '#DAA520' }
+];
+
+const sampleVisuals: VisualItem[] = [
+  {
+    id: '1',
+    type: VisualType.Character,
+    description: 'Elara, a young enchantress in an emerald cloak, stands at the edge of a dense, ancient forest, sunlight filtering through tall trees onto her.',
+    reuse: false,
+    status: 'done',
+    imageUrl: 'https://via.placeholder.com/640x360/6A5ACD/FFFFFF?text=Elara+in+Woods' // Sample Image URL
+  },
+  {
+    id: '2',
+    type: VisualType.Location,
+    description: 'A close-up of Elara\'s wooden staff, its crystal tip glowing softly, as it taps against moss-covered gnarled tree roots.',
+    reuse: false,
+    status: 'done',
+    imageUrl: 'https://via.placeholder.com/640x360/483D8B/FFFFFF?text=Elara%27s+Staff' // Sample Image URL
+  },
+  {
+    id: '3',
+    type: VisualType.Mood,
+    description: 'Ethereal glowing moss covers ancient, towering trees, forming a natural cathedral within a mysterious forest, heavy with a faint hum.',
+    reuse: false,
+    status: 'done',
+    imageUrl: 'https://via.placeholder.com/640x360/7B68EE/FFFFFF?text=Ethereal+Woods' // Sample Image URL
+  },
+  {
+    id: '4',
+    type: VisualType.Character,
+    description: 'Kael, a rogue knight in scuffed dark armor, emerges from deep shadows, his amber eyes glinting mischievously.',
+    reuse: false,
+    status: 'done',
+    imageUrl: 'https://via.placeholder.com/640x360/B22222/FFFFFF?text=Kael+Emerges' // Sample Image URL
+  },
+  {
+    id: '5',
+    type: VisualType.Action,
+    description: 'Elara and Kael stand facing each other on a shimmering forest path, glowing runes visible on the ground between them, a silent challenge in their stances.',
+    reuse: false,
+    status: 'done',
+    imageUrl: 'https://via.placeholder.com/640x360/FF4500/FFFFFF?text=Elara+and+Kael+Confront' // Sample Image URL
+  },
+  {
+    id: '6',
+    type: VisualType.Symbolic,
+    description: 'A gentle breeze stirs emerald leaves, carrying faint, almost unheard whispers, symbolizing forgotten magic.',
+    reuse: false,
+    status: 'done',
+    imageUrl: 'https://via.placeholder.com/640x360/DAA520/FFFFFF?text=Whispering+Leaves' // Sample Image URL
+  }
+];
+
+const initialAppState: AppState = {
+  step: 'input',
+  planningTab: 'storyboard',
+  chapterText: '',
+  contextText: '',
+  bookTitle: '',
+  bookAuthor: '',
+  bookGenre: '',
+  selectedProfile: 'Novel Explanation',
+  mood: null,
+  characters: [],
+  emotionArc: [],
+  visuals: [],
+  files: [],
+  contextFiles: [],
+  bible: null,
+  isAnalyzingBible: false,
+  isThinking: false,
+};
+
 const App: React.FC = () => {
-  const [state, setState] = useState<AppState>({
-    step: 'input',
-    planningTab: 'storyboard',
-    chapterText: '',
-    contextText: '',
-    bookTitle: '',
-    bookAuthor: '',
-    bookGenre: '',
-    selectedProfile: 'Novel Explanation',
-    mood: null,
-    characters: [],
-    emotionArc: [],
-    visuals: [],
-    files: [],
-    contextFiles: [],
-    bible: null,
-    isAnalyzingBible: false,
-    isThinking: false,
-  });
+  const [state, setState] = useState<AppState>(() => ({
+    ...initialAppState,
+    step: 'planning', // Start on planning view to showcase samples
+    chapterText: sampleChapterText,
+    bookTitle: 'The Sunstone Quest',
+    bookAuthor: 'A.I. Author',
+    bookGenre: 'Fantasy Adventure',
+    mood: sampleMood,
+    characters: sampleCharacters,
+    emotionArc: sampleEmotionArc,
+    visuals: sampleVisuals,
+  }));
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isContextOpen, setIsContextOpen] = useState(false);
@@ -429,20 +539,29 @@ const App: React.FC = () => {
     }
   };
 
-  const handleFinishChapter = () => {
+  const handleGoToInputView = () => {
+    setState(prev => ({ ...prev, step: 'input' }));
+  };
+
+  const handleStartNextChapter = () => {
     setState(prev => ({
         ...prev,
-        step: 'input',
-        chapterText: '',
+        step: 'input', // Go back to input for the next chapter
+        planningTab: 'storyboard', // Reset tab for next chapter
+        chapterText: '', // Clear chapter text for the next chapter
         files: [], // Clear current chapter files
-        // retain contextFiles, bible, bookTitle, etc.
-        // retain characters (so we don't lose portraits)
-        visuals: [], // Clear visuals
-        mood: null,
-        emotionArc: [],
-        planningTab: 'storyboard' // Reset tab
+        visuals: [], // Clear visuals for the next chapter
+        mood: null, // Clear mood for the next chapter
+        emotionArc: [], // Clear emotion arc for the next chapter
+        // *** Retain Project-level context ***
+        // bookTitle, bookAuthor, bookGenre, selectedProfile, characters, contextFiles, bible are retained
     }));
   };
+
+  const handleEndProject = () => {
+    setState(initialAppState); // Reset everything to the initial blank state
+  };
+
 
   const handleRegenerateItem = async (id: string) => {
     const item = state.visuals.find(v => v.id === id);
@@ -595,7 +714,7 @@ const App: React.FC = () => {
                     <div className="flex flex-col md:flex-row items-center justify-between gap-4">
                         <div className="text-left">
                             <button 
-                              onClick={() => setState(prev => ({ ...prev, step: 'input' }))}
+                              onClick={handleGoToInputView}
                               className="text-white/40 hover:text-white text-xs font-medium mb-3 flex items-center gap-1 transition-colors"
                             >
                                 <ArrowRight className="w-3 h-3 rotate-180" /> Back to Input
@@ -679,14 +798,21 @@ const App: React.FC = () => {
                                     ))}
                                 </div>
                                 
-                                {/* Finish Button */}
-                                <div className="flex justify-center pt-12 pb-8 border-t border-white/5 mt-12">
+                                {/* Action Buttons for Project Workflow */}
+                                <div className="flex flex-col sm:flex-row justify-center gap-4 pt-12 pb-8 border-t border-white/5 mt-12">
                                     <Button 
-                                        onClick={handleFinishChapter}
-                                        className="bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-600/30 w-full md:w-auto min-w-[300px]"
+                                        onClick={handleStartNextChapter}
+                                        className="bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-600/30 w-full sm:w-auto min-w-[200px]"
                                         icon={<Forward className="w-4 h-4" />}
                                     >
-                                        Finish & Start Next Chapter
+                                        Start Next Chapter
+                                    </Button>
+                                    <Button 
+                                        onClick={handleEndProject}
+                                        className="bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 w-full sm:w-auto min-w-[200px]"
+                                        icon={<PowerOff className="w-4 h-4" />}
+                                    >
+                                        End Project
                                     </Button>
                                 </div>
                             </motion.div>
