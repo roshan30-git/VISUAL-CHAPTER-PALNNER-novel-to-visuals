@@ -506,15 +506,60 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const contextFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Effect to save state to localStorage whenever it changes
+  // Effect to save state to localStorage whenever it changes, with debouncing
   useEffect(() => {
-    // Destructure to omit transient properties before saving
-    const { isThinking, isAnalyzingBible, ...stateToSave } = state;
-    try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stateToSave));
-    } catch (e) {
-      console.error("Failed to save state to localStorage", e);
-    }
+    const saveState = () => {
+      // Deep clone to avoid modifying the active state object directly
+      const stateToSave = JSON.parse(JSON.stringify(state));
+
+      // Remove large data from files (base64 data)
+      stateToSave.files = stateToSave.files.map((file: UploadedFile) => {
+        const { data, ...rest } = file;
+        return rest; // Only save id, name, type
+      });
+      stateToSave.contextFiles = stateToSave.contextFiles.map((file: UploadedFile) => {
+        const { data, ...rest } = file;
+        return rest; // Only save id, name, type
+      });
+
+      // Remove generated image URLs (which are base64, keep external URLs like demo placeholders)
+      stateToSave.visuals = stateToSave.visuals.map((visual: VisualItem) => {
+        if (visual.imageUrl && visual.imageUrl.startsWith('data:')) {
+            const { imageUrl, ...rest } = visual;
+            return rest; // Don't save base64 image data
+        }
+        return visual; // Save if it's an external URL or undefined
+      });
+
+      // Remove generated character portrait URLs (which are base64)
+      stateToSave.characters = stateToSave.characters.map((char: Character) => {
+        if (char.imageUrl && char.imageUrl.startsWith('data:')) {
+          const { imageUrl, ...rest } = char;
+          return rest; // Don't save base64 image data
+        }
+        return char; // Save if it's an external URL or undefined
+      });
+
+      // Omit transient UI states
+      const { isThinking, isAnalyzingBible, ...finalStateToSave } = stateToSave;
+
+      try {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(finalStateToSave));
+      } catch (e: any) {
+        console.error("Failed to save state to localStorage", e);
+        if (e.name === 'QuotaExceededError') {
+          setErrorMsg("Storage limit reached! Some data might not be saved. Consider clearing browser data or reducing large file uploads.");
+        } else {
+          setErrorMsg("Failed to save progress automatically. Please check browser console.");
+        }
+      }
+    };
+
+    // Implement a debounce to avoid excessive writes to localStorage
+    const timeoutId = setTimeout(saveState, 500); // Save after 500ms of inactivity
+
+    // Cleanup on unmount or state change
+    return () => clearTimeout(timeoutId);
   }, [state]); // Dependency array includes the entire state object
 
   const readFile = (file: File): Promise<UploadedFile> => {
@@ -623,6 +668,7 @@ const App: React.FC = () => {
       step: 'planning',
       chapterText: sampleChapterText,
       bookTitle: 'The Sunstone Quest',
+      isContextOpen: true, // Open context section for demo
       bookAuthor: 'A.I. Author',
       bookGenre: 'Fantasy Adventure',
       mood: sampleMood,
