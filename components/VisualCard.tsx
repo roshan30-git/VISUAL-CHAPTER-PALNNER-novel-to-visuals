@@ -83,8 +83,8 @@ export const VisualCard: React.FC<VisualCardProps> = ({
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
       className={`relative group flex flex-col rounded-xl overflow-hidden border transition-all duration-300 ${
         isGenerating 
-          ? 'border-accent/50 bg-accent/5' 
-          : 'border-white/10 bg-gradient-to-br from-white/[0.08] to-white/[0.02] hover:border-white/20 hover:shadow-2xl hover:shadow-purple-900/10'
+          ? 'border-accent/50 bg-gradient-to-b from-accent/10 to-transparent' 
+          : 'border-white/10 bg-gradient-to-b from-white/[0.08] to-transparent hover:border-white/20 hover:shadow-2xl hover:shadow-purple-900/10'
       }`}
     >
       {/* Image Section */}
