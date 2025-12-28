@@ -1,0 +1,5 @@
+{
+  "name": "Visual Chapter Planner",
+  "description": "An editorial tool for visual storytelling. Converts narrative text into structured visual plans and generates high-fidelity images using Gemini.",
+  "requestFramePermissions": []
+}
