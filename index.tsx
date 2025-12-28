@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AppState, VideoProfile, VisualItem, VisualType, UploadedFile, SeriesBible, Character, ChapterMood, EmotionPoint } from './types';
@@ -55,6 +55,7 @@ interface InputViewProps {
   onRemoveFile: (id: string, isContext?: boolean) => void;
   onGenerate: () => void;
   onAnalyzeBible: () => void;
+  onLoadDemo: () => void;
   isContextOpen: boolean;
   setIsContextOpen: (v: boolean) => void;
   errorMsg: string | null;
@@ -70,6 +71,7 @@ const InputView: React.FC<InputViewProps> = ({
   onRemoveFile,
   onGenerate,
   onAnalyzeBible,
+  onLoadDemo,
   isContextOpen,
   setIsContextOpen,
   errorMsg
@@ -80,6 +82,8 @@ const InputView: React.FC<InputViewProps> = ({
     { id: 'Manhwa Summary', icon: ScrollText, label: 'Manhwa Summary', tag: 'WEBTOON', color: 'green' }
   ];
 
+  const aspectRatios = ['16:9', '1:1', '4:3', '9:16', '3:4'];
+
   return (
     <motion.div 
       initial={{ opacity: 0 }} 
@@ -88,9 +92,16 @@ const InputView: React.FC<InputViewProps> = ({
       className="max-w-6xl mx-auto w-full pt-8 md:pt-16 px-4 pb-20"
     >
       {/* Header Section */}
-      <div className="text-center mb-16 space-y-3">
+      <div className="text-center mb-16 space-y-4">
         <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-b from-white via-white to-white/40 text-transparent bg-clip-text tracking-tight pb-2">Visual Chapter Planner</h1>
         <p className="text-white/40 text-lg font-light">Turn narrative text, PDFs, or images into a structured visual sequence.</p>
+        <button 
+          onClick={onLoadDemo} 
+          className="text-accent/80 hover:text-accent text-sm font-medium transition-colors flex items-center gap-1.5 mx-auto py-2"
+        >
+          <Sparkles className="w-4 h-4" />
+          See a Demo Project
+        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
@@ -288,6 +299,51 @@ const InputView: React.FC<InputViewProps> = ({
              })}
           </div>
 
+          {/* New: Image Aspect Ratio Selection */}
+          <div className="space-y-3">
+            <h2 className="text-lg font-medium text-white/90 pl-1">Image Aspect Ratio</h2>
+            <div className="grid grid-cols-3 gap-3">
+              {aspectRatios.map((ratio) => (
+                <button
+                  key={ratio}
+                  onClick={() => setState(prev => ({ ...prev, imageAspectRatio: ratio }))}
+                  className={`flex items-center justify-center p-3 rounded-xl border aspect-square transition-all duration-300 group ${
+                    state.imageAspectRatio === ratio
+                      ? 'bg-gradient-to-br from-indigo-500/20 via-indigo-900/10 to-transparent border-indigo-500 shadow-[0_0_20px_-5px_rgba(99,102,241,0.5)]'
+                      : 'bg-gradient-to-br from-white/[0.05] to-transparent border-white/10 hover:border-white/20 hover:from-white/[0.08] hover:to-white/[0.01]'
+                  }`}
+                >
+                  <span className={`text-sm font-semibold ${state.imageAspectRatio === ratio ? 'text-white' : 'text-white/40 group-hover:text-white/60'}`}>
+                    {ratio}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          {/* Established Cast Visualization (Shown when retaining context) */}
+          {state.characters.length > 0 && (
+             <div className="space-y-2 pt-2 border-t border-white/5 animate-in fade-in slide-in-from-right-4">
+                 <h2 className="text-xs font-bold text-green-400 uppercase tracking-widest flex items-center gap-2">
+                    <Users className="w-3 h-3" /> Established Cast
+                 </h2>
+                 <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                    {state.characters.map((char, idx) => (
+                        <div key={idx} className="shrink-0 w-10 h-10 rounded-full bg-white/10 overflow-hidden border border-white/10 relative group" title={char.name}>
+                            {char.imageUrl ? (
+                                <img src={char.imageUrl} alt={char.name} className="w-full h-full object-cover" />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center text-[8px]">{char.name.substring(0,2)}</div>
+                            )}
+                        </div>
+                    ))}
+                    <div className="text-[10px] text-white/30 italic whitespace-nowrap px-2">
+                        + Context retained
+                    </div>
+                 </div>
+             </div>
+          )}
+
           <Button 
             onClick={onGenerate} 
             isLoading={state.isThinking}
@@ -410,6 +466,7 @@ const initialAppState: AppState = {
   bookAuthor: '',
   bookGenre: '',
   selectedProfile: 'Novel Explanation',
+  imageAspectRatio: '16:9', // Default aspect ratio
   mood: null,
   characters: [],
   emotionArc: [],
@@ -421,24 +478,44 @@ const initialAppState: AppState = {
   isThinking: false,
 };
 
+const LOCAL_STORAGE_KEY = 'visualChapterPlannerState';
+
 const App: React.FC = () => {
-  const [state, setState] = useState<AppState>(() => ({
-    ...initialAppState,
-    step: 'planning', // Start on planning view to showcase samples
-    chapterText: sampleChapterText,
-    bookTitle: 'The Sunstone Quest',
-    bookAuthor: 'A.I. Author',
-    bookGenre: 'Fantasy Adventure',
-    mood: sampleMood,
-    characters: sampleCharacters,
-    emotionArc: sampleEmotionArc,
-    visuals: sampleVisuals,
-  }));
+  const [state, setState] = useState<AppState>(() => {
+    try {
+      const savedState = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (savedState) {
+        const parsedState: AppState = JSON.parse(savedState);
+        // Ensure transient states are reset on load
+        return {
+          ...parsedState,
+          isAnalyzingBible: false,
+          isThinking: false,
+          // errorMsg is managed by local state, not part of AppState
+        };
+      }
+    } catch (e) {
+      console.error("Failed to parse state from localStorage", e);
+      // Fallback to initial state if parsing fails
+    }
+    return initialAppState;
+  });
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isContextOpen, setIsContextOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const contextFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Effect to save state to localStorage whenever it changes
+  useEffect(() => {
+    // Destructure to omit transient properties before saving
+    const { isThinking, isAnalyzingBible, ...stateToSave } = state;
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stateToSave));
+    } catch (e) {
+      console.error("Failed to save state to localStorage", e);
+    }
+  }, [state]); // Dependency array includes the entire state object
 
   const readFile = (file: File): Promise<UploadedFile> => {
     return new Promise((resolve, reject) => {
@@ -482,7 +559,8 @@ const App: React.FC = () => {
         state.selectedProfile,
         state.contextText,
         state.bible,
-        { title: state.bookTitle, author: state.bookAuthor, genre: state.bookGenre }
+        { title: state.bookTitle, author: state.bookAuthor, genre: state.bookGenre },
+        state.characters // Pass existing characters for consistency
       );
 
       setState(prev => {
@@ -539,6 +617,23 @@ const App: React.FC = () => {
     }
   };
 
+  const handleLoadDemo = () => {
+    setState({
+      ...initialAppState, // Start with a clean slate for transient states
+      step: 'planning',
+      chapterText: sampleChapterText,
+      bookTitle: 'The Sunstone Quest',
+      bookAuthor: 'A.I. Author',
+      bookGenre: 'Fantasy Adventure',
+      mood: sampleMood,
+      characters: sampleCharacters,
+      emotionArc: sampleEmotionArc,
+      visuals: sampleVisuals,
+      imageAspectRatio: '16:9',
+    });
+    // The useEffect will handle saving this new demo state.
+  };
+
   const handleGoToInputView = () => {
     setState(prev => ({ ...prev, step: 'input' }));
   };
@@ -560,6 +655,7 @@ const App: React.FC = () => {
 
   const handleEndProject = () => {
     setState(initialAppState); // Reset everything to the initial blank state
+    localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear saved state as well
   };
 
 
@@ -638,7 +734,7 @@ const App: React.FC = () => {
     }));
 
     try {
-      const url = await generateImageForItem(item, state.selectedProfile, state.mood, state.characters);
+      const url = await generateImageForItem(item, state.selectedProfile, state.mood, state.characters, state.imageAspectRatio);
       setState(prev => ({
         ...prev,
         visuals: prev.visuals.map(v => v.id === id ? { ...v, imageUrl: url, status: 'done' } : v)
@@ -699,6 +795,7 @@ const App: React.FC = () => {
                     onRemoveFile={onRemoveFile}
                     onGenerate={onGenerate}
                     onAnalyzeBible={onAnalyzeBible}
+                    onLoadDemo={handleLoadDemo}
                     isContextOpen={isContextOpen}
                     setIsContextOpen={setIsContextOpen}
                     errorMsg={errorMsg}

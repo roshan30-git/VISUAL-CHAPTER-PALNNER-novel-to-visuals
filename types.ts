@@ -1,4 +1,5 @@
 
+
 export enum VisualType {
   Character = 'character_anchor',
   Mood = 'mood',
@@ -74,6 +75,7 @@ export interface AppState {
   bookGenre: string;
 
   selectedProfile: VideoProfile;
+  imageAspectRatio: string; // New: Selected aspect ratio for generated images
   mood: ChapterMood | null;
   characters: Character[];
   emotionArc: EmotionPoint[]; // Store the heatmap data

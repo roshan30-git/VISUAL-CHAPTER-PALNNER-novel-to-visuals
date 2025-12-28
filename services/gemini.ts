@@ -163,7 +163,8 @@ export const generateVisualPlan = async (
   profile: VideoProfile,
   contextText?: string,
   bible?: SeriesBible | null,
-  metadata?: { title: string; author: string; genre: string }
+  metadata?: { title: string; author: string; genre: string },
+  existingCharacters?: Character[] // NEW: Pass characters from previous chapters
 ): Promise<VisualPlanResponse> => {
   const ai = getAI();
   
@@ -180,31 +181,27 @@ export const generateVisualPlan = async (
 
   const wordCount = fullChapterContent.trim().split(/\s+/).length;
   
-  // Dynamic Pacing Algorithm
-  // Adjusts the target number of visuals based on text density.
-  let minScenes = 4;
-  let maxScenes = 8;
+  // Dynamic Pacing Algorithm based on word count
+  let minScenes, maxScenes;
 
-  if (wordCount < 300) {
-      // Short / Flash Fiction
-      minScenes = 3;
-      maxScenes = 6;
-  } else if (wordCount < 800) {
-      // Short Chapter / Scene
-      minScenes = 6;
-      maxScenes = 10;
-  } else if (wordCount < 1500) {
-      // Standard Chapter
-      minScenes = 10;
-      maxScenes = 16;
+  if (wordCount < 500) {
+    minScenes = 1;
+    maxScenes = 3;
+  } else if (wordCount < 1200) {
+    minScenes = 3;
+    maxScenes = 6;
+  } else if (wordCount < 2000) {
+    minScenes = 6;
+    maxScenes = 10;
   } else if (wordCount < 3000) {
-      // Long Chapter
-      minScenes = 16;
-      maxScenes = 24;
+    minScenes = 10;
+    maxScenes = 14;
+  } else if (wordCount < 5000) {
+    minScenes = 14;
+    maxScenes = 20;
   } else {
-      // Very Long / Novella
-      minScenes = 24;
-      maxScenes = 35;
+    minScenes = 20;
+    maxScenes = 30;
   }
   
   // Decide Strategy: If no Context is provided but we have a Book Title, 
@@ -259,6 +256,14 @@ ${bible.characters.map(c => `- ${c.name}: ${c.physical_description}`).join('\n')
 KNOWN LOCATIONS:
 ${bible.locations.map(l => `- ${l.name}: ${l.visual_description}`).join('\n')}
 --------------------------------------
+    `});
+  } else if (existingCharacters && existingCharacters.length > 0) {
+    // NEW: Retain context from previous chapters even without a full bible
+    parts.push({ text: `
+--- ESTABLISHED CAST (FROM PREVIOUS CHAPTERS) ---
+You MUST maintain consistency with these previously generated characters:
+${existingCharacters.map(c => `- ${c.name}: ${c.physical_description}`).join('\n')}
+-------------------------------------------------
     `});
   } else if (contextText) {
     parts.push({ text: `Context Notes: ${contextText}` });
@@ -347,7 +352,8 @@ export const generateImageForItem = async (
   item: VisualItem,
   profile: VideoProfile,
   mood: { tone: string, palette_hint: string },
-  characters: Character[] = []
+  characters: Character[] = [],
+  aspectRatio: string = "16:9" // New parameter with default
 ): Promise<string> => {
   const ai = getAI();
   const styles: Record<VideoProfile, string> = {
@@ -385,7 +391,7 @@ export const generateImageForItem = async (
     Shot Type: ${item.type}
     
     TECHNICAL CONSTRAINTS: 
-    - Aspect Ratio: 16:9
+    - Aspect Ratio: ${aspectRatio}
     - No text, speech bubbles, or UI elements.
     - High fidelity, sharp focus.
   `;
@@ -394,7 +400,7 @@ export const generateImageForItem = async (
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: { parts: [{ text: fullPrompt }] },
-      config: { imageConfig: { aspectRatio: "16:9" } }
+      config: { imageConfig: { aspectRatio: aspectRatio } } // Use the passed aspectRatio
     });
     for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
