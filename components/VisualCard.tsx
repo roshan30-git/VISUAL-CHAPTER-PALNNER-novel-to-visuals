@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { VisualItem, VisualType } from '../types';
-import { RefreshCw, Trash2, Repeat, MapPin, User, Zap, Sparkles, Image as ImageIcon, CheckCircle, AlertCircle, Eye, Download, ChevronDown, Edit2, Save, X, FileText } from 'lucide-react';
+import { RefreshCw, Trash2, Repeat, MapPin, User, Zap, Sparkles, Image as ImageIcon, CheckCircle, AlertCircle, Eye, Download, ChevronDown, Edit2, Save, X, FileText, Wand2 } from 'lucide-react';
 
 interface VisualCardProps {
   item: VisualItem;
@@ -10,6 +10,7 @@ interface VisualCardProps {
   onRegenerate: (id: string) => void;
   onTypeChange?: (id: string, newType: string) => void;
   onDescriptionChange?: (id: string, newDesc: string) => void;
+  onEditImage?: (id: string, prompt: string) => void;
   showImage?: boolean;
 }
 
@@ -35,10 +36,13 @@ export const VisualCard: React.FC<VisualCardProps> = ({
   onRegenerate, 
   onTypeChange, 
   onDescriptionChange,
+  onEditImage,
   showImage 
 }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [isImageEditing, setIsImageEditing] = useState(false);
   const [editValue, setEditValue] = useState(item.description);
+  const [imageEditPrompt, setImageEditPrompt] = useState("");
   const [showContext, setShowContext] = useState(false);
 
   // Sync edit value when item updates externally (e.g. regeneration)
@@ -62,16 +66,25 @@ export const VisualCard: React.FC<VisualCardProps> = ({
     }
   };
 
-  const handleSave = () => {
+  const handleSaveDescription = () => {
     if (onDescriptionChange) {
       onDescriptionChange(item.id, editValue);
     }
     setIsEditing(false);
   };
 
+  const handleSaveImageEdit = () => {
+    if (onEditImage && imageEditPrompt.trim()) {
+      onEditImage(item.id, imageEditPrompt);
+      setImageEditPrompt("");
+    }
+    setIsImageEditing(false);
+  };
+
   const handleCancel = () => {
     setEditValue(item.description);
     setIsEditing(false);
+    setIsImageEditing(false);
   };
 
   return (
@@ -183,8 +196,9 @@ export const VisualCard: React.FC<VisualCardProps> = ({
           )}
         </div>
 
-        {/* Description / Edit Mode */}
+        {/* --- MAIN EDITING AREA --- */}
         {isEditing ? (
+          /* TEXT PROMPT EDIT MODE */
           <div className="space-y-3 animate-in fade-in duration-200">
              <textarea
                value={editValue}
@@ -219,24 +233,70 @@ export const VisualCard: React.FC<VisualCardProps> = ({
                   <X className="w-3 h-3" /> Cancel
                 </button>
                 <button 
-                  onClick={handleSave}
+                  onClick={handleSaveDescription}
                   className="px-3 py-1.5 rounded-md text-xs font-medium bg-accent text-white hover:bg-accent/80 transition-colors flex items-center gap-1.5 shadow-lg shadow-accent/20"
                 >
                   <Save className="w-3 h-3" /> Save Changes
                 </button>
              </div>
           </div>
+        ) : isImageEditing ? (
+          /* IMAGE EDIT MODE (MAGIC WAND) */
+           <div className="space-y-3 animate-in fade-in duration-200">
+              <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
+                <div className="flex items-center gap-2 text-indigo-300 text-xs font-bold mb-2">
+                  <Wand2 className="w-3.5 h-3.5" /> MAGIC EDIT MODE
+                </div>
+                <textarea
+                  value={imageEditPrompt}
+                  onChange={(e) => setImageEditPrompt(e.target.value)}
+                  className="w-full h-20 bg-black/40 border border-indigo-500/30 rounded-md p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500/50 resize-none leading-relaxed placeholder-white/30"
+                  placeholder="Example: Add a red hat, Make it raining..."
+                  autoFocus
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button 
+                  onClick={handleCancel}
+                  className="px-3 py-1.5 rounded-md text-xs font-medium text-white/60 hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleSaveImageEdit}
+                  disabled={!imageEditPrompt.trim()}
+                  className="px-3 py-1.5 rounded-md text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition-colors flex items-center gap-1.5 shadow-lg shadow-indigo-900/20 disabled:opacity-50"
+                >
+                  <Wand2 className="w-3 h-3" /> Generate Edit
+                </button>
+             </div>
+           </div>
         ) : (
-          <p className="text-sm text-text/90 leading-relaxed font-light">
+          /* DEFAULT VIEW */
+          <p 
+             onClick={() => !isGenerating && setIsEditing(true)}
+             className={`text-sm text-text/90 leading-relaxed font-light ${!isGenerating ? 'cursor-text hover:text-white transition-colors p-1 -m-1 rounded hover:bg-white/5' : ''}`}
+             title="Click to edit prompt"
+          >
             {item.description}
           </p>
         )}
 
         {/* Footer Actions */}
-        {!isEditing && (
+        {!isEditing && !isImageEditing && (
           <div className="mt-auto pt-3 flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity focus-within:opacity-100">
             {!isGenerating && (
               <>
+                {onEditImage && isDone && item.imageUrl && (
+                   <button 
+                   onClick={() => setIsImageEditing(true)}
+                   className="p-2 rounded hover:bg-indigo-500/20 text-indigo-300/60 hover:text-indigo-300 transition-colors"
+                   title="Magic Edit Image"
+                 >
+                   <Wand2 className="w-4 h-4" />
+                 </button>
+                )}
+
                 {onDescriptionChange && !showImage && (
                   <button 
                     onClick={() => setIsEditing(true)}

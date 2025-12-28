@@ -2,10 +2,12 @@ import React, { useState, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AppState, VideoProfile, VisualItem, VisualType, UploadedFile, SeriesBible, Character } from './types';
-import { generateVisualPlan, generateImageForItem, regenerateVisualDescription, generateSeriesBible } from './services/gemini';
+import { generateVisualPlan, generateImageForItem, regenerateVisualDescription, generateSeriesBible, generateCharacterPortrait, editVisualImage } from './services/gemini';
 import { Button } from './components/Button';
 import { VisualCard } from './components/VisualCard';
-import { Sparkles, FileText, ChevronRight, Settings2, Download, Image as ImageIcon, BookOpen, AlertCircle, Users, Paperclip, X, FileType, MonitorPlay, ScrollText, ChevronDown, Star, Database, Check, Loader2, Edit2, Save, ArrowRight, Trash2, Globe } from 'lucide-react';
+import { Heatmap } from './components/Heatmap';
+import { CharacterBible } from './components/CharacterBible';
+import { Sparkles, FileText, ChevronRight, Settings2, Download, Image as ImageIcon, BookOpen, AlertCircle, Users, Paperclip, X, FileType, MonitorPlay, ScrollText, ChevronDown, Star, Database, Check, Loader2, Edit2, Save, ArrowRight, Trash2, Globe, LayoutGrid, Palette, Forward } from 'lucide-react';
 
 // --- Sub-Components ---
 
@@ -305,6 +307,7 @@ const InputView: React.FC<InputViewProps> = ({
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
     step: 'input',
+    planningTab: 'storyboard',
     chapterText: '',
     contextText: '',
     bookTitle: '',
@@ -313,6 +316,7 @@ const App: React.FC = () => {
     selectedProfile: 'Novel Explanation',
     mood: null,
     characters: [],
+    emotionArc: [],
     visuals: [],
     files: [],
     contextFiles: [],
@@ -371,19 +375,38 @@ const App: React.FC = () => {
         { title: state.bookTitle, author: state.bookAuthor, genre: state.bookGenre }
       );
 
-      setState(prev => ({
-        ...prev,
-        step: 'planning',
-        isThinking: false,
-        mood: plan.chapter_mood,
-        characters: plan.characters,
-        visuals: plan.visuals.map((v, idx) => ({
-          ...v,
-          id: idx.toString(),
-          status: 'pending',
-          reuse: v.reuse || false
-        }))
-      }));
+      setState(prev => {
+        // Merge characters logic: Keep existing ones (with portraits) if name matches
+        const existingCharsMap = new Map<string, Character>();
+        prev.characters.forEach(c => existingCharsMap.set(c.name.toLowerCase(), c));
+
+        const newChars = plan.characters.map(c => {
+           const existing = existingCharsMap.get(c.name.toLowerCase());
+           if (existing) {
+               return { ...c, imageUrl: existing.imageUrl || c.imageUrl, status: existing.status === 'done' ? 'done' : c.status };
+           }
+           return c;
+        });
+        
+        // Add preserved characters not in current plan (for bible completeness)
+        const newNames = new Set(newChars.map(c => c.name.toLowerCase()));
+        const preserved = prev.characters.filter(c => !newNames.has(c.name.toLowerCase()));
+
+        return {
+          ...prev,
+          step: 'planning',
+          isThinking: false,
+          mood: plan.chapter_mood,
+          characters: [...newChars, ...preserved],
+          emotionArc: plan.emotion_arc || [],
+          visuals: plan.visuals.map((v, idx) => ({
+            ...v,
+            id: idx.toString(),
+            status: 'pending',
+            reuse: v.reuse || false
+          }))
+        };
+      });
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err.message || "Failed to generate plan");
@@ -404,6 +427,21 @@ const App: React.FC = () => {
       setErrorMsg(err.message || "Failed to analyze context");
       setState(prev => ({ ...prev, isAnalyzingBible: false }));
     }
+  };
+
+  const handleFinishChapter = () => {
+    setState(prev => ({
+        ...prev,
+        step: 'input',
+        chapterText: '',
+        files: [], // Clear current chapter files
+        // retain contextFiles, bible, bookTitle, etc.
+        // retain characters (so we don't lose portraits)
+        visuals: [], // Clear visuals
+        mood: null,
+        emotionArc: [],
+        planningTab: 'storyboard' // Reset tab
+    }));
   };
 
   const handleRegenerateItem = async (id: string) => {
@@ -427,6 +465,30 @@ const App: React.FC = () => {
         visuals: prev.visuals.map(v => v.id === id ? { ...v, status: 'error' } : v)
       }));
     }
+  };
+
+  const handleEditImage = async (id: string, prompt: string) => {
+      const item = state.visuals.find(v => v.id === id);
+      if (!item || !item.imageUrl) return;
+
+      setState(prev => ({
+          ...prev,
+          visuals: prev.visuals.map(v => v.id === id ? { ...v, status: 'generating' } : v)
+      }));
+
+      try {
+          const url = await editVisualImage(item.imageUrl, prompt);
+          setState(prev => ({
+              ...prev,
+              visuals: prev.visuals.map(v => v.id === id ? { ...v, imageUrl: url, status: 'done' } : v)
+          }));
+      } catch (e) {
+          console.error(e);
+          setState(prev => ({
+              ...prev,
+              visuals: prev.visuals.map(v => v.id === id ? { ...v, status: 'error' } : v)
+          }));
+      }
   };
 
   const handleDeleteItem = (id: string) => {
@@ -479,6 +541,27 @@ const App: React.FC = () => {
     });
   };
 
+  // New handler for character portraits
+  const handleGeneratePortrait = async (char: Character) => {
+      setState(prev => ({
+          ...prev,
+          characters: prev.characters.map(c => c.name === char.name ? { ...c, status: 'generating' } : c)
+      }));
+      try {
+          const url = await generateCharacterPortrait(char, state.selectedProfile);
+          setState(prev => ({
+              ...prev,
+              characters: prev.characters.map(c => c.name === char.name ? { ...c, imageUrl: url, status: 'done' } : c)
+          }));
+      } catch (e) {
+          console.error(e);
+          setState(prev => ({
+              ...prev,
+              characters: prev.characters.map(c => c.name === char.name ? { ...c, status: 'error' } : c)
+          }));
+      }
+  };
+
   return (
     <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-purple-500/30">
         <div className="fixed inset-0 z-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-purple-900/20 via-[#050505] to-[#050505] pointer-events-none" />
@@ -507,7 +590,7 @@ const App: React.FC = () => {
                     initial={{ opacity: 0 }} 
                     animate={{ opacity: 1 }} 
                     exit={{ opacity: 0 }}
-                    className="max-w-7xl mx-auto px-4 py-8 space-y-8"
+                    className="max-w-7xl mx-auto px-4 py-8 space-y-8 pb-32"
                 >
                     <div className="flex flex-col md:flex-row items-center justify-between gap-4">
                         <div className="text-left">
@@ -530,41 +613,103 @@ const App: React.FC = () => {
                                 )}
                             </div>
                         </div>
-                        <div className="flex gap-3">
-                             <Button 
-                               onClick={generateAllImages}
-                               icon={<Sparkles className="w-4 h-4" />}
-                               className="shadow-xl shadow-purple-900/20"
+                        <div className="flex items-center gap-2 bg-white/5 p-1 rounded-lg border border-white/10">
+                             <button
+                               onClick={() => setState(prev => ({ ...prev, planningTab: 'storyboard' }))}
+                               className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-all ${state.planningTab === 'storyboard' ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white'}`}
                              >
-                                 Generate All Images
-                             </Button>
+                                <LayoutGrid className="w-3.5 h-3.5" /> Storyboard
+                             </button>
+                             <button
+                               onClick={() => setState(prev => ({ ...prev, planningTab: 'characters' }))}
+                               className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-all ${state.planningTab === 'characters' ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white'}`}
+                             >
+                                <Users className="w-3.5 h-3.5" /> Characters
+                             </button>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {state.visuals.map(item => (
-                            <div key={item.id} className="relative group">
-                                <VisualCard 
-                                    item={item}
-                                    chapterText={state.chapterText}
-                                    onDelete={handleDeleteItem}
-                                    onRegenerate={handleRegenerateItem}
-                                    onTypeChange={handleTypeChange}
-                                    onDescriptionChange={handleDescriptionChange}
-                                    showImage={true} 
-                                />
-                                {(item.status === 'pending' || item.status === 'error') && (
-                                    <button
-                                        onClick={() => generateSingleImage(item.id)}
-                                        className="absolute top-3 right-3 z-20 p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-all scale-90 group-hover:scale-100"
-                                        title="Generate This Image"
-                                    >
-                                        <ImageIcon className="w-4 h-4" />
-                                    </button>
-                                )}
-                            </div>
-                        ))}
+                    {/* Heatmap Visualization */}
+                    <div className="animate-in slide-in-from-top-4 fade-in duration-700">
+                        <Heatmap data={state.emotionArc} />
                     </div>
+
+                    {/* Main Content Area */}
+                    <AnimatePresence mode='wait'>
+                        {state.planningTab === 'storyboard' ? (
+                            <motion.div 
+                                key="storyboard"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                className="space-y-6"
+                            >
+                                <div className="flex justify-end">
+                                    <Button 
+                                    onClick={generateAllImages}
+                                    icon={<Sparkles className="w-4 h-4" />}
+                                    className="shadow-xl shadow-purple-900/20"
+                                    >
+                                        Generate All Scenes
+                                    </Button>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {state.visuals.map(item => (
+                                        <div key={item.id} className="relative group">
+                                            <VisualCard 
+                                                item={item}
+                                                chapterText={state.chapterText}
+                                                onDelete={handleDeleteItem}
+                                                onRegenerate={handleRegenerateItem}
+                                                onTypeChange={handleTypeChange}
+                                                onDescriptionChange={handleDescriptionChange}
+                                                onEditImage={handleEditImage}
+                                                showImage={true} 
+                                            />
+                                            {(item.status === 'pending' || item.status === 'error') && (
+                                                <button
+                                                    onClick={() => generateSingleImage(item.id)}
+                                                    className="absolute top-3 right-3 z-20 p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-all scale-90 group-hover:scale-100"
+                                                    title="Generate This Image"
+                                                >
+                                                    <ImageIcon className="w-4 h-4" />
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                                
+                                {/* Finish Button */}
+                                <div className="flex justify-center pt-12 pb-8 border-t border-white/5 mt-12">
+                                    <Button 
+                                        onClick={handleFinishChapter}
+                                        className="bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-600/30 w-full md:w-auto min-w-[300px]"
+                                        icon={<Forward className="w-4 h-4" />}
+                                    >
+                                        Finish & Start Next Chapter
+                                    </Button>
+                                </div>
+                            </motion.div>
+                        ) : (
+                            <motion.div 
+                                key="characters"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                            >
+                                <div className="bg-gradient-to-r from-purple-900/20 to-transparent p-6 rounded-2xl border border-purple-500/10 mb-8">
+                                    <h3 className="text-xl font-bold text-white mb-2">Character Visual Bible</h3>
+                                    <p className="text-sm text-white/50 max-w-2xl">
+                                        Establish a consistent visual identity for your cast. Generating reference portraits here helps define the "Ground Truth" for all subsequent scene generations.
+                                    </p>
+                                </div>
+                                <CharacterBible 
+                                    characters={state.characters} 
+                                    onGeneratePortrait={handleGeneratePortrait}
+                                />
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </motion.div>
             )}
            </AnimatePresence>

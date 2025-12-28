@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { VisualPlanResponse, VideoProfile, VisualItem, VisualType, Character, UploadedFile, SeriesBible } from "../types";
 import { extractTextFromPDF } from "./pdf";
@@ -153,6 +154,8 @@ export const generateSeriesBible = async (
  * AGENT 2: VISUAL SELECTOR
  * Uses the pre-generated Context + Chapter Text to plan.
  * NOW SUPPORTS: Automatic Search Research if Context is missing.
+ * ADDED: Emotion Heatmap analysis.
+ * ADDED: Dynamic Scene Count Calculation based on Word Count.
  */
 export const generateVisualPlan = async (
   chapterText: string,
@@ -164,6 +167,46 @@ export const generateVisualPlan = async (
 ): Promise<VisualPlanResponse> => {
   const ai = getAI();
   
+  // 1. Calculate Content Complexity & Length
+  let fullChapterContent = chapterText || "";
+  if (chapterFiles.length > 0) {
+      try {
+          const filesContent = await extractContentFromFiles(chapterFiles);
+          fullChapterContent += `\n\n--- ATTACHED FILE CONTENT ---\n${filesContent}`;
+      } catch (e) {
+          console.warn("Failed to read files for word count estimation", e);
+      }
+  }
+
+  const wordCount = fullChapterContent.trim().split(/\s+/).length;
+  
+  // Dynamic Pacing Algorithm
+  // Adjusts the target number of visuals based on text density.
+  let minScenes = 4;
+  let maxScenes = 8;
+
+  if (wordCount < 300) {
+      // Short / Flash Fiction
+      minScenes = 3;
+      maxScenes = 6;
+  } else if (wordCount < 800) {
+      // Short Chapter / Scene
+      minScenes = 6;
+      maxScenes = 10;
+  } else if (wordCount < 1500) {
+      // Standard Chapter
+      minScenes = 10;
+      maxScenes = 16;
+  } else if (wordCount < 3000) {
+      // Long Chapter
+      minScenes = 16;
+      maxScenes = 24;
+  } else {
+      // Very Long / Novella
+      minScenes = 24;
+      maxScenes = 35;
+  }
+  
   // Decide Strategy: If no Context is provided but we have a Book Title, 
   // use Gemini 3 Flash with Search to research the characters on the fly.
   const useSearch = !bible && !contextText && !!metadata?.title;
@@ -174,6 +217,15 @@ export const generateVisualPlan = async (
     You are a visual editor for long-form novel explanation videos.
     
     GOAL: Create a visual storyboard plan for the PROVIDED CHAPTER CONTENT.
+    
+    TASKS:
+    1. Identify characters and their appearances.
+    2. Select ${minScenes} to ${maxScenes} visual moments for the storyboard.
+       - The text length is approx ${wordCount} words.
+       - Ensure the visuals are evenly distributed to cover the ENTIRE narrative arc.
+       - Do not rush the ending.
+       - For long texts, ensure you capture the nuances and key dialogue interactions.
+    3. Analyze the EMOTIONAL PACING of the chapter (The "Heatmap").
     
     CONTEXT HANDLING:
     ${bible ? `
@@ -187,13 +239,6 @@ export const generateVisualPlan = async (
     ` : `
     - Analyze the text to infer character appearances.
     `}
-    
-    STEP 1: MATCHING & RESEARCH
-    Identify which characters are in this chapter. ${useSearch ? 'Search for their visual designs on the web.' : 'Use provided context.'}
-    
-    STEP 2: VISUALIZATION
-    Select 6–9 visual moments.
-    CRITICAL: In the 'description' field, ALWAYS use the Character's Proper Name (e.g. "John") instead of pronouns (e.g. "He") so the image generator knows who to render.
     
     Video Profile: ${profile}
     STRICT OUTPUT FORMAT: JSON ONLY.
@@ -221,12 +266,7 @@ ${bible.locations.map(l => `- ${l.name}: ${l.visual_description}`).join('\n')}
 
   // 2. Add Chapter Content
   parts.push({ text: "--- CHAPTER CONTENT TO VISUALIZE ---" });
-  parts.push({ text: `Narrative Text:\n${chapterText || "[See attached files]"}` });
-  
-  if (chapterFiles.length > 0) {
-      const chapterFileContent = await extractContentFromFiles(chapterFiles);
-      parts.push({ text: chapterFileContent });
-  }
+  parts.push({ text: fullChapterContent });
 
   try {
     const response = await ai.models.generateContent({
@@ -254,6 +294,19 @@ ${bible.locations.map(l => `- ${l.name}: ${l.visual_description}`).join('\n')}
                 properties: {
                   name: { type: Type.STRING },
                   physical_description: { type: Type.STRING }
+                }
+              }
+            },
+            emotion_arc: {
+              type: Type.ARRAY,
+              description: "A chronological list of emotional beats (minimum 6 points) representing the flow of the chapter.",
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  beat_description: { type: Type.STRING, description: "Short label for this moment (e.g., 'The Argument')" },
+                  emotion_label: { type: Type.STRING, description: "One word emotion (e.g. Tension, Fear, Joy)" },
+                  intensity: { type: Type.NUMBER, description: "1 to 10" },
+                  color_hex: { type: Type.STRING, description: "Color code representing the emotion (e.g. #FF0000 for danger)" }
                 }
               }
             },
@@ -354,6 +407,48 @@ export const generateImageForItem = async (
 };
 
 /**
+ * GENERATE CHARACTER PORTRAIT (Reference Sheet)
+ */
+export const generateCharacterPortrait = async (
+  character: Character,
+  profile: VideoProfile
+): Promise<string> => {
+  const ai = getAI();
+  const styles: Record<VideoProfile, string> = {
+    'Novel Explanation': 'digital art, character concept art, neutral background, detailed face, cinematic lighting, semi-realistic',
+    'Anime Recap': 'anime character sheet, white background, high quality, studio ghibli style, clean lines, cel shaded',
+    'Manhwa Summary': 'webtoon character profile, high detailed, glowing lighting, korean manhwa style, dynamic pose'
+  };
+
+  const prompt = `
+    Type: Character Reference Sheet
+    Style: ${styles[profile]}
+    
+    CHARACTER: ${character.name}
+    DESCRIPTION: ${character.physical_description}
+    
+    Focus on creating a clear, definitive visual reference for this character.
+    Front facing or 3/4 view. Neutral expression.
+    Aspect Ratio: 1:1
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: { parts: [{ text: prompt }] },
+      config: { imageConfig: { aspectRatio: "1:1" } }
+    });
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    }
+    throw new Error("No image data returned");
+  } catch (error) {
+    console.error(`Portrait Gen Error for ${character.name}:`, error);
+    throw error;
+  }
+};
+
+/**
  * Role 4: Visual Refiner (Regenerate single item)
  * NOW SUPPORTS: Google Search if Title is provided.
  */
@@ -376,6 +471,10 @@ export const regenerateVisualDescription = async (
     RESEARCH MODE: Use Google Search to verify details about the book "${bookTitle}".
     Ensure the improved description matches canonical character designs and setting details.
     ` : 'Make it more detailed, cinematic, and accurate to the source text.'}
+    
+    CRITICAL INSTRUCTION: Output ONLY valid JSON. Do not include markdown formatting. 
+    DO NOT REPEAT THE PROVIDED CONTEXT TEXT IN YOUR OUTPUT.
+    Keep the description concise (under 200 words).
   `;
 
   const prompt = `
@@ -408,6 +507,7 @@ export const regenerateVisualDescription = async (
         tools: tools,
         systemInstruction: systemInstruction,
         responseMimeType: "application/json",
+        maxOutputTokens: 2000,
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -418,12 +518,60 @@ export const regenerateVisualDescription = async (
       }
     });
 
-    const text = response.text;
-    if (!text) throw new Error("No regeneration response");
+    let text = response.text || "{}";
     
+    // Cleanup potential Markdown artifacts if model disobeys mimeType
+    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
     return JSON.parse(text) as { type: string; description: string };
   } catch (error) {
     console.error("Visual Regeneration Error:", error);
+    throw error;
+  }
+};
+
+/**
+ * EDIT EXISTING IMAGE
+ * Uses an existing image + text prompt to generate a new version.
+ */
+export const editVisualImage = async (
+  originalImageBase64: string,
+  changePrompt: string
+): Promise<string> => {
+  const ai = getAI();
+  
+  // Extract base64 data and mime type for the API
+  const matches = originalImageBase64.match(/^data:(.+);base64,(.+)$/);
+  if (!matches || matches.length !== 3) {
+    throw new Error("Invalid image data format");
+  }
+  const mimeType = matches[1];
+  const base64Data = matches[2];
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: base64Data,
+              mimeType: mimeType
+            }
+          },
+          {
+            text: `Edit instruction: ${changePrompt}. Maintain the original composition and style where possible.`
+          }
+        ]
+      }
+    });
+    
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    }
+    throw new Error("No image data returned from edit");
+  } catch (error) {
+    console.error("Image Edit Error:", error);
     throw error;
   }
 };
